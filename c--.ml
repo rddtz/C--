@@ -42,11 +42,20 @@ let rec value (e:expr) : bool =
 
 let rec step (e:expr) : expr option = 
   match e with
-  | Num n          -> None (* Values don't move *)
-  | Bool b         -> None
-  | Unit           -> None
-  | Id z           -> None
-
+  | Num n             -> None (* Values don't move *)
+  | Bool b            -> None
+  | Unit              -> None
+  | Id z              -> None
+  | Binop (op,e1,e2) -> (match step e1 with
+      | None      -> (match step e2 with 
+          | None     -> (match op with 
+              | Sum -> Some (Num (e1 + e2))
+              | Sub -> Some (Num (e1 - e2)))
+          | Some e2' -> Some (Binop (op, e1, e2')))
+      | Some e1'  -> Some (Binop (op,e1',e2))
+    )
+  | _ -> (Num -1) 
+         
 (* steps : expr -> expr *) 
 let rec steps (e:expr) : expr =
   match step e with
