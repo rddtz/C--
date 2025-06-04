@@ -28,6 +28,9 @@ type expr =
   | Read
   | Print of expr
 
+type entrada =
+  | Entry of expr * int list * int list * int list
+
 (* value : expr -> bool *)
 let rec value (e:expr) : bool =
   match e with
@@ -49,44 +52,50 @@ let rec bool_expr (e:expr) : bool =
 
 
 
-let rec step ((e : expr), (mem : int list), (input : int list), (output : int list)): expr option =
+let rec step ((e : expr), (m : int list), (ip : int list), (out : int list)) : expr option * int list * int list * int list =
   match e with
-  | Num n             -> None (* Values don't move *)
-  | Bool b            -> None
-  | Unit              -> None
-  | Id z              -> None
+
+    (* Values *)
+  | Num n             -> (None, m, ip, out) (* Values don't move *)
+  | Bool b            -> (None, m, ip, out)
+  | Unit              -> (None, m, ip, out)
+  | Id z              -> (None, m, ip, out)
+                         
   (* Operações Binárias *)
-  | Binop (op,e1,e2) -> (match step (e1, mem, input, output) with
-      | None      -> (match step (e2, mem, input, output) with
-          | None     -> (match op with
-              | Sum -> Some (Num (num_expr(e1) + num_expr(e2)))
-              | Sub -> Some (Num (num_expr(e1) - num_expr(e2)))
-              | Mul -> Some (Num (num_expr(e1) * num_expr(e2)))
-              | Div -> Some (Num (num_expr(e1) / num_expr(e2)))
-              | Eq  -> Some (Bool (num_expr(e1) == num_expr(e2)))
-              | Neq -> Some (Bool (num_expr(e1) != num_expr(e2)))
-              | Lt  -> Some (Bool (num_expr(e1) < num_expr(e2)))
-              | Gt  -> Some (Bool (num_expr(e1) > num_expr(e2)))
-              | And -> Some (Bool (bool_expr(e1) && bool_expr(e2)))
-              | Or  -> Some (Bool (bool_expr(e1) || bool_expr(e2)))
+  | Binop (op,e1,e2) -> (match step (e1, m, ip, out) with
+      | (None, m', ip', out') -> (match step (e2, m', ip', out') with
+          | (None, m'', ip'', out'') -> (match op with
+              | Sum -> (Some (Num (num_expr(e1) + num_expr(e2))), m'', ip'', out'')
+              | Sub -> (Some (Num (num_expr(e1) - num_expr(e2))), m'', ip'', out'')
+              | Mul -> (Some (Num (num_expr(e1) * num_expr(e2))), m'', ip'', out'')
+              | Div -> (Some (Num (num_expr(e1) / num_expr(e2))), m'', ip'', out'')
+              | Eq  -> (Some (Bool (num_expr(e1) == num_expr(e2))), m'', ip'', out'')
+              | Neq -> (Some (Bool (num_expr(e1) != num_expr(e2))), m'', ip'', out'')
+              | Lt  -> (Some (Bool (num_expr(e1) < num_expr(e2))), m'', ip'', out'')
+              | Gt  -> (Some (Bool (num_expr(e1) > num_expr(e2))) , m'', ip'', out'')
+              | And -> (Some (Bool (bool_expr(e1) && bool_expr(e2))), m'', ip'', out'')
+              | Or  -> (Some (Bool (bool_expr(e1) || bool_expr(e2))), m'', ip'', out'')
             )
-          | Some e2' -> Some (Binop (op, e1, e2')))
-      | Some e1'  -> Some (Binop (op,e1',e2))
+          | (Some e2', m'', ip'', out'') -> (Some (Binop (op, e1, e2')), m'', ip'', out'') 
+        )
+      | (Some e1', m', ip', out')  -> (Some (Binop (op,e1',e2)), m', ip', out')
     )
+    
   (* If *)
-  | If (e1, e2, e3) -> (match step (e1, mem, input, output) with
-      | None -> (match e1 with
-          | Bool true  -> Some e2
-          | Bool false -> Some e3)
-      | Some e1' -> Some(If (e1', e2, e3))
+  | If (e1, e2, e3) -> (match step (e1, m, ip, out) with
+      | (None, m', ip', out') -> (match (e1, m', ip', out') with
+          | (Bool true, m'', ip'', out'')  -> (Some e2, m'', ip'', out'')  
+          | (Bool false, m'', ip'', out'') -> (Some e3, m'', ip'', out'')  
+        )
+      | (Some e1', m', ip', out')  -> (Some(If (e1', e2, e3)), m', ip', out') 
     )
-  | _ -> Some (Num (-1))
+  | _ -> (Some (Num (-1)), m, ip, out) 
 
 (* steps : expr -> expr *)
-let rec steps ((e : expr), (mem : int list), (input : int list), (output : int list)): expr =
-  match step (e, mem, input, output) with
-  | None -> e
-  | Some e' -> steps (e', mem, input, output)
+let rec steps ((e : expr), (m : int list), (ip : int list), (out : int list)): expr * int list * int list * int list =
+  match step (e, m, ip, out) with
+  | (None, m', ip', out')   -> (e, m', ip', out')
+  | (Some e', m', ip', out') -> steps (e', m', ip', out')
 
 
           (*  TEST CASE
