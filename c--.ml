@@ -22,7 +22,7 @@ type expr =
   | Id of string
   | If of expr * expr * expr
   | Binop of bop * expr * expr
-  | Wh of expr * expr
+  | Wh of expr * expr 
   | Asg of expr * expr
   | Let of string * tipo * expr * expr
   | New of expr
@@ -31,6 +31,10 @@ type expr =
   | Seq of expr * expr
   | Read
   | Print of expr
+  (* Adição: For *)
+  | For of expr * expr * expr (* For padrão com incremento igual a 1 *)
+  | ForStep of expr * expr * expr * expr (* For com incremento passado por argumento *)
+                    
 
 type entrada =
   | Entry of expr * int list * int list * int list
@@ -61,21 +65,23 @@ let rec id_expr (e:expr) : string =
 
 let rec subst ((s: expr), (x: string), (e: expr)) : expr =
   match e with
-  | Num n             -> e
-  | Bool b            -> e
-  | Id y              -> (if y == x then s else e)
-  | Let(y, t, e1, e2) -> (if y == x then Let(y, t, subst(s, x, e1), e2)
-                          else Let(y, t, subst(s, x, e1), subst(s, x, e2))
-                         )
-  | Binop(op, e1, e2) -> Binop(op, subst(s, x, e1), subst(s, x, e2))
-  | If(e1, e2, e3)    -> If(subst(s,x,e1), subst(s,x,e2), subst(s,x,e3))
-  | Print(e1)         -> Print(subst(s, x, e1))
-  | Seq(e1, e2)       -> Seq(subst(s, x, e1), subst(s, x, e2))
-  | Wh(e1, e2)        -> Wh(subst(s, x, e1), subst(s, x, e2))
-  | New(e1)           -> New(subst(s, x, e1))
-  | Deref(e1)         -> Deref(subst(s, x, e1))
-  | Asg(e1, e2)       -> Asg(subst(s, x, e1), subst(s, x, e2))
-  | _                 -> e
+  | Num n                  -> e
+  | Bool b                 -> e
+  | Id y                   -> (if y == x then s else e)
+  | Let(y, t, e1, e2)      -> (if y == x then Let(y, t, subst(s, x, e1), e2)
+                               else Let(y, t, subst(s, x, e1), subst(s, x, e2))
+                              )
+  | Binop(op, e1, e2)      -> Binop(op, subst(s, x, e1), subst(s, x, e2))
+  | If(e1, e2, e3)         -> If(subst(s,x,e1), subst(s,x,e2), subst(s,x,e3))
+  | Print(e1)              -> Print(subst(s, x, e1))
+  | Seq(e1, e2)            -> Seq(subst(s, x, e1), subst(s, x, e2))
+  | Wh(e1, e2)             -> Wh(subst(s, x, e1), subst(s, x, e2))
+  | New(e1)                -> New(subst(s, x, e1))
+  | Deref(e1)              -> Deref(subst(s, x, e1))
+  | Asg(e1, e2)            -> Asg(subst(s, x, e1), subst(s, x, e2))
+  | For(e1,e2,e3)          -> For(subst(s, x, e1), subst(s, x, e2), subst(s, x, e3)) 
+  | ForStep(e1,e2,e3, e4)  -> ForStep(subst(s, x, e1), subst(s, x, e2), subst(s, x, e3), subst(s, x, e4))
+  | _                      -> e
 
 let rec alloc ((e : expr), (m : (string * expr) list)) : (string * expr) =
   match m with
@@ -139,7 +145,7 @@ let rec step ((e : expr), (m : (string * expr) list), (ip : int list), (out : in
     )
 
   (* While *)
-  | Wh(e1, e2) -> (Some(If (e1, Seq(e2,Wh(e1, e2)), Unit)), m, ip, out)
+  | Wh(e1, e2) -> (Some(If (e1, Seq(e2,Wh(e1, e2)), Unit)), m, ip, out) 
 
   (* Atribuição de variáveis *)
   | Asg(e1, e2) -> (match step (e1, m, ip, out) with
@@ -167,30 +173,121 @@ let rec step ((e : expr), (m : (string * expr) list), (ip : int list), (out : in
       | (None, m', ip', out') -> let x = alloc(e1, m) in(Some (Id (fst x)), x :: m', ip', out')
       | (Some e1', m', ip', out')  -> (Some (New(e1')), m', ip', out')
     )
+    
+  (* Adição: For *)
+  | For(e1, e2, e3) -> (Some(If (Binop(Lt, Deref(e1), e2), 
+                                 Seq(e3, 
+                                     Seq(Asg(e1, Binop(Sum, Deref(e1), (Num 1))), 
+                                         For(e1, e2, e3))), 
+                                 Unit)), m, ip, out)
+  | ForStep(e1, e2, e3, e4) -> (Some(If (Binop(Lt, Deref(e1), e2), 
+                                         Seq(e4, 
+                                             Seq(Asg(e1, Binop(Sum, Deref(e1), e3)), 
+                                                 ForStep(e1, e2, e3, e4))), 
+                                         Unit)), m, ip, out)                  
 
 (* steps : expr -> expr *)
 let rec steps ((e : expr), (m : (string * expr) list), (ip : int list), (out : int list)): expr * (string * expr) list * int list * int list =
   match step (e, m, ip, out) with
   | (None, m', ip', out')   -> (e, m', ip', out')
-  | (Some e', m', ip', out') -> steps (e', m', ip', out')
+  | (Some e', m', ip', out') -> steps (e', m', ip', out') 
 
+(* 
+                           Utilizando C--
 
-          (*  TEST CASE
+   A chamada das funções step e steps esperam um expressão e três listas. Escolhemos representar 
+a memória como uma lista de pares (string * int), utilizando funções de associação para 
+busca por chave (string indexa o valor int).
+
+ Uma chamada de uma expressão definida como minha_expr com a memória vazia e com o valor 5 na entrada 
+seria feita assim:
+
+                                 steps(minha_expr, [], [5], [])
+                                          ^        ^    ^   ^
+                                          |        \     \   \
+                                         ;         |     |    `--> Fila de saída
+       Expressão que será avaliada <----'         |     |
+                 Memória (vazia nesse caso) <----´     |
+                                 Fila de entrada <----´
+
+As expressões abaixo são alguns programas que podem ser utilizados de exemplo para utilizar a linguagem.
+
+*) 
+
+(* 1 -- Imprimindo valores de 1 até 10 
+
+            let  x: int     =  read() in
+            let  z: ref int = new 1 in
+
+            for (!z = 1; !z < !x; !z := !z + 1) (
+                print(!z)
+            )
+
+*)
+
+let contar = Let("x", TyInt, Read,
+                 Let("z", TyRef TyInt, New (Num 1), 
+                     For((Id "z"), Binop(Sum, (Id "x"), (Num 1)), Print(Deref(Id "z")))))
+    
+let numeros1a10 = steps(contar, [], [10], []) 
+  
+  
+(* 2 -- Imprimindo valores pares de 0 até 100 
+
+            let  x: int     =  read() in
+            let  z: ref int = new 0 in
+
+            for (!z = 1; !z < !x; !z := !z + 2) (
+                print(!z)
+            )
+
+*)
+
+let contar_pares = Let("x", TyInt, Read,
+                       Let("z", TyRef TyInt, New (Num 0), 
+                           ForStep((Id "z"), Binop(Sum, (Id "x"), (Num 1)), (Num 2), Print(Deref(Id "z")))))
+    
+let pares0a100 = steps(contar_pares, [], [100], []) 
+
+    
+  
+(* 3 -- Soma dos 5 primeiros impares:
+
+            let  x: int     =  read() in
+            let  z: ref int = new 0 in
+
+            for (!z = 1; !z < !x; !z := !z + 2) (
+                print(!z)
+            )
+
+*)  
+    
+
+let mul2z   = Binop(Mul, Deref (Id "z"), (Num 2))
+let sum1z   = Binop(Sum, (Num 1), mul2z)
+let updty   = Asg(Id "y", Binop(Sum, Deref (Id "y"), sum1z))
+let forsum = For((Id "z"), (Id "x"), updty)
+let seq     = Seq(forsum, Print(Deref (Id ("y"))))
+
+let soma_impares = Let("x", TyInt, Read,
+                       Let("z", TyRef TyInt, New (Num 0),
+                           Let("y", TyRef TyInt, New (Num 0), 
+                               seq)))
+                               
+let soma5_primeiros_impares = steps(soma_impares, [], [5], []) 
+
+(*  4 -- 5 Fatorial:
 
             let  x: int     =  read() in
             let  z: ref int = new x in
             let  y: ref int = new 1 in
 
             (while (!z > 0) (
-                   y :=  !y * !z;
-                   z :=  !z - 1);
+                y :=  !y * !z;
+                z :=  !z - 1);
             print (! y))
 
 *)
-
-let tif = If (Binop(Eq, (Num 1), (Num 1)), Print (Binop(Sum, (Num 2), (Num 3))), (Num 4))
-let teste = steps (Seq(tif, Print(Num(10))), [], [1], []) ;;
-let teste2 = steps (Seq(Asg(Id "r", Num (10)), Deref(Id "r")), [], [1], []) ;;
 
 let cndwhi = Binop(Gt, Deref (Id "z"),Num 0)
 let asgny = Asg(Id "y", Binop(Mul, Deref (Id "y"),Deref(Id "z")))
@@ -203,6 +300,6 @@ let seq = Seq(whi, prt)
 let fat = Let("x", TyInt, Read,
               Let("z", TyRef TyInt, New (Id "x"),
                   Let("y", TyRef TyInt, New (Num 1),
-                      seq)))
-
-let final = steps(fat, [], [5], [])
+                      seq))) 
+    
+let fat5 = steps(fat, [], [5], [])
