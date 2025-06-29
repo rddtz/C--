@@ -1,3 +1,8 @@
+(*  
+Rayan Raddatz de Matos - 00584919
+Gabriel Henrique Fiszczuk Brandeburski - 00580296
+*)
+
 open List
 
 module StringMap = Map.Make(String)
