@@ -4,7 +4,7 @@ module StringMap = Map.Make(String)
 
 (* Operações numéricas *)
 type bop =
-  | Sum | Sub | Mul | Div   (* operações aritméticas *)
+  | Sum | Sub | Mul (* operações aritméticas *)
   | Eq  | Neq | Lt | Gt   (* operações relacionais  *)
   | And | Or   (* operações lógicas *)
 
@@ -32,8 +32,74 @@ type expr =
   | Read
   | Print of expr
   (* Adição: For *)
-  | For of expr * expr * expr * expr
-                    
+  | For of expr * expr * expr
+
+(* typeInfer : (string, tipo) list, expr -> tipo option *)
+let rec typeInfer (gm: (string * tipo) list) (e:expr) : tipo option = 
+  match e with
+  | Num n         -> Some TyInt
+  | Bool b        -> Some TyBool
+  | Unit          -> Some TyUnit
+  | Read          -> Some TyInt
+  | Print e'      -> (match typeInfer gm e' with
+      | Some TyInt -> Some TyUnit
+      | _          -> None       )
+  | Id x          -> assoc_opt x gm 
+  | If (e1, e2, e3) -> (match typeInfer gm e1 with
+      | Some TyBool ->  (match (typeInfer gm e2, typeInfer gm e3) with
+          | (Some t2, Some t3)  -> if t2 = t3
+              then Some t2
+              else None
+          | _                   -> None)
+      | _         -> None)
+  | Binop (bop, e1, e2) -> (match bop with
+      | Sum 
+      | Sub 
+      | Mul -> (match (typeInfer gm e1, typeInfer gm e2) with
+                | (Some TyInt, Some TyInt) -> Some TyInt
+                | _ -> None)
+      | Eq  
+      | Neq 
+      | Lt 
+      | Gt  -> (match (typeInfer gm e1, typeInfer gm e2) with
+                | (Some TyInt, Some TyInt) -> Some TyBool
+                | _ -> None)
+      | And 
+      | Or  ->  (match (typeInfer gm e1, typeInfer gm e2) with
+                | (Some TyBool, Some TyBool) -> Some TyBool
+                | _ -> None))
+  | Wh (e1, e2) -> (match (typeInfer gm e1, typeInfer gm e2) with
+      | (Some TyBool, Some TyUnit)  -> Some TyUnit
+      | _                           -> None)
+  | Asg (e1, e2) -> (match (typeInfer gm e1, typeInfer gm e2) with
+      | (Some TyRef(t1), Some t2) -> if t1 = t2
+          then Some TyUnit
+          else None 
+      | _ -> None)     
+  | Let (x, tp, e1, e2) -> (match (typeInfer gm e1, typeInfer ((x, tp) :: gm) e2) with
+      | (Some t1, Some t2) -> if t1 = tp
+          then Some t2
+          else None
+      | _ -> None)
+  | New e' -> (match typeInfer gm e' with
+      | Some t -> Some (TyRef t)
+      | _ -> None)                          
+  | Deref e' -> (match typeInfer gm e' with
+      | Some TyRef(t) -> Some t
+      | _ -> None)
+  | Seq (e1, e2) -> (match (typeInfer gm e1, typeInfer gm e2) with
+      | (Some TyUnit, Some t) -> Some t
+      | _ -> None)  
+  (*
+  
+  Γ ⊢ e1 : bool {teste}    Γ ⊢ e2 : unit  {incremento}    Γ ⊢ e3 : unit {código interno}
+  ---------------------------------------------------------------------------------------
+                          for(e1, e2, e3) : unit
+              
+  *)
+  | For(e1, e2, e3) -> (match (typeInfer gm e1, typeInfer gm e2, typeInfer gm e3) with
+      | (Some TyBool, Some TyUnit, Some TyUnit) -> Some TyUnit
+      | _ -> None)
 
 type entrada =
   | Entry of expr * int list * int list * int list
@@ -78,7 +144,7 @@ let rec subst ((s: expr), (x: string), (e: expr)) : expr =
   | New(e1)                -> New(subst(s, x, e1))
   | Deref(e1)              -> Deref(subst(s, x, e1))
   | Asg(e1, e2)            -> Asg(subst(s, x, e1), subst(s, x, e2))
-  | For(e1,e2,e3,e4)       -> For(subst(s, x, e1), subst(s, x, e2), subst(s, x, e3), subst(s, x, e4)) 
+  | For(e1,e2,e3)          -> For(subst(s, x, e1), subst(s, x, e2), subst(s, x, e3)) 
   | _                      -> e
 
 let rec alloc ((e : expr), (m : (string * expr) list)) : (string * expr) =
@@ -107,7 +173,6 @@ let rec step ((e : expr), (m : (string * expr) list), (ip : int list), (out : in
               | Sum -> (Some (Num (num_expr(e1) + num_expr(e2))), m'', ip'', out'')
               | Sub -> (Some (Num (num_expr(e1) - num_expr(e2))), m'', ip'', out'')
               | Mul -> (Some (Num (num_expr(e1) * num_expr(e2))), m'', ip'', out'')
-              | Div -> (Some (Num (num_expr(e1) / num_expr(e2))), m'', ip'', out'')
               | Eq  -> (Some (Bool (num_expr(e1) == num_expr(e2))), m'', ip'', out'')
               | Neq -> (Some (Bool (num_expr(e1) != num_expr(e2))), m'', ip'', out'')
               | Lt  -> (Some (Bool (num_expr(e1) < num_expr(e2))), m'', ip'', out'')
@@ -173,13 +238,12 @@ let rec step ((e : expr), (m : (string * expr) list), (ip : int list), (out : in
     )
     
   (* Adição: For *)
-  | For(e1, e2, e3, e4) -> (Some (If
-                                    (e2, 
-                                     Seq(e4, 
-                                         Seq(e3, 
-                                             For(e1, e2, e3, e4))), 
-                                     Unit)), 
-                            m, ip, out)   
+  | For(e1, e2, e3) -> (Some (If (e1, 
+                                  Seq(e3, 
+                                      Seq(e2, 
+                                          For(e1, e2, e3))), 
+                                  Unit)), 
+                        m, ip, out)   
 
 (* steps : expr -> expr *)
 let rec steps ((e : expr), (m : (string * expr) list), (ip : int list), (out : int list)): expr * (string * expr) list * int list * int list =
@@ -214,7 +278,7 @@ As expressões abaixo são alguns programas que podem ser utilizados de exemplo 
             let  x: int     =  read() in
             let  z: ref int = new 1 in
 
-            for (!z = 1; !z < !x; !z := !z + 1) (
+            for (!z < !x; !z := !z + 1) (
                 print(!z)
             )
 
@@ -223,8 +287,7 @@ As expressões abaixo são alguns programas que podem ser utilizados de exemplo 
 
 let contar = Let("x", TyInt, Read,
                  Let("z", TyRef TyInt, New (Num 1), 
-                     For((Id "z"), 
-                         Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
+                     For(Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
                          Asg(Id "z", Binop(Sum, Deref (Id "z"), (Num 1))), 
                          Print(Deref(Id "z")))))
     
@@ -236,7 +299,7 @@ let numeros1a10 = steps(contar, [], [10], [])
             let  x: int     =  read() in
             let  z: ref int = new 0 in
 
-            for (!z = 1; !z < !x + 1; !z := !z + 2) (
+            for (!z < !x + 1; !z := !z + 2) (
                 print(!z)
             )
 
@@ -244,8 +307,7 @@ let numeros1a10 = steps(contar, [], [10], [])
 
 let contar_pares = Let("x", TyInt, Read,
                        Let("z", TyRef TyInt, New (Num 0), 
-                           For((Id "z"), 
-                               Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
+                           For(Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
                                Asg(Id "z", Binop(Sum, Deref (Id "z"), Num 2)),
                                Print(Deref(Id "z")))))
     
@@ -257,7 +319,7 @@ let pares0a100 = steps(contar_pares, [], [100], [])
             let  x: int     =  read() in
             let  z: ref int = new 0 in
 
-            for (!z = 1; !z < !x; !z := !z + 2) (
+            for (!z < !x; !z := !z + 2) (
                 print(!z)
             )
 
@@ -268,7 +330,7 @@ let mul2z   = Binop(Mul, Deref (Id "z"), (Num 2))
 let sum1z   = Binop(Sum, (Num 1), mul2z) 
 let updtz   = Asg(Id "z", Binop(Sum, Deref (Id "z"), (Num 1)))
 let updty   = Asg(Id "y", Binop(Sum, Deref (Id "y"), sum1z))
-let forsum  = For((Id "z"), Binop(Lt, Deref (Id "z"), (Id "x")), updtz, updty)
+let forsum  = For(Binop(Lt, Deref (Id "z"), (Id "x")), updtz, updty)
 let seq     = Seq(forsum, Print(Deref (Id ("y"))))
 
 let soma_impares = Let("x", TyInt, Read,
