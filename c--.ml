@@ -113,20 +113,26 @@ let rec value (e:expr) : bool =
   | Id z     -> true
   | _ -> false
 
-
+exception Not_a_number of string
 
 let rec num_expr (e:expr) : int =
   match e with
   | Num n -> n
+  | _ -> raise (Not_a_number "The input expression is not a number")
+
+exception Not_a_bool of string
 
 let rec bool_expr (e:expr) : bool =
   match e with
   | Bool b -> b
+  | _ -> raise (Not_a_bool "The input expression is not a boolean")
+ 
+exception Not_an_id of string
 
 let rec id_expr (e:expr) : string =
   match e with
   | Id z -> z
-
+  | _ -> raise (Not_an_id "The input expression is not an identifier")
 
 let rec subst ((s: expr), (x: string), (e: expr)) : expr =
   match e with
@@ -190,6 +196,7 @@ let rec step ((e : expr), (m : (string * expr) list), (ip : int list), (out : in
       | (None, m', ip', out') -> (match (e1, m', ip', out') with
           | (Bool true, m'', ip'', out'')  -> (Some e2, m'', ip'', out'')
           | (Bool false, m'', ip'', out'') -> (Some e3, m'', ip'', out'')
+          | _ -> raise (Not_a_bool "The condition for the 'if' is not a valid boolean")
         )
       | (Some e1', m', ip', out')  -> (Some(If (e1', e2, e3)), m', ip', out')
     )
@@ -290,7 +297,9 @@ let contar = Let("x", TyInt, Read,
                      For(Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
                          Asg(Id "z", Binop(Sum, Deref (Id "z"), (Num 1))), 
                          Print(Deref(Id "z")))))
-    
+
+let tipoContar = typeInfer [] contar
+
 let numeros1a10 = steps(contar, [], [10], []) 
     
   
@@ -310,7 +319,9 @@ let contar_pares = Let("x", TyInt, Read,
                            For(Binop(Lt, Deref (Id "z"), Binop(Sum, (Id "x"), (Num 1))), 
                                Asg(Id "z", Binop(Sum, Deref (Id "z"), Num 2)),
                                Print(Deref(Id "z")))))
-    
+
+let tipoContarPares = typeInfer [] contar_pares                     
+
 let pares0a100 = steps(contar_pares, [], [100], []) 
     
   
@@ -337,7 +348,9 @@ let soma_impares = Let("x", TyInt, Read,
                        Let("z", TyRef TyInt, New (Num 0),
                            Let("y", TyRef TyInt, New (Num 0), 
                                seq)))
-                               
+
+let tipoSomaImpares = typeInfer [] soma_impares
+
 let soma5_primeiros_impares = steps(soma_impares, [], [5], []) 
 
 (*  4 -- 5 Fatorial:
@@ -365,5 +378,7 @@ let fat = Let("x", TyInt, Read,
               Let("z", TyRef TyInt, New (Id "x"),
                   Let("y", TyRef TyInt, New (Num 1),
                       seq))) 
+
+let tipoFat = typeInfer [] fat           
     
 let fat5 = steps(fat, [], [5], [])
